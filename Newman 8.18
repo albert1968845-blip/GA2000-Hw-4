@@ -1,0 +1,79 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+def f(t, y, a=1.0, b=3.0):
+    x, yv = y[0], y[1]
+    dx = 1.0-(b+1.0)*x + a*x*x*yv
+    dy = b*x-a*x*x*yv
+    return np.array([dx,dy],float)
+
+def midpoint_base(f, t, y, H, n):
+    h = H/n
+    y_im1 = y.copy()
+    y_i = y_im1 + h*f(t, y_im1)
+    ti = t+h
+    for _ in range(1,n):
+        y_ip1 = y_im1 + 2.0*h*f(ti,y_i)
+        y_im1, y_i = y_i, y_ip1
+        ti += h
+    return 0.5*(y_i + y_im1 +h*f(t+H, y_i))
+
+def bs_try(f, t, y, H, delta, n_max=8):
+    tol = delta * abs(H)
+    ns = range(2, n_max + 1, 2)  
+    R = []                       
+    for i, n in enumerate(ns):
+        R.append([midpoint_base(f, t, y, H, n)])
+        for m in range(1, i + 1):
+            ni, nk = (list(ns)[i], list(ns)[i - m])
+            fac = (ni / nk) ** 2 - 1.0
+            R[i].append(R[i][m - 1] + (R[i][m - 1] - R[i - 1][m - 1]) / fac)
+        if i > 0:
+            err = np.max(np.abs(R[i][i] - R[i - 1][i - 1]))
+            if err <= tol:
+                return True, R[i][i]
+    return False, y
+
+def integrate_bs(f, t0, y0, t1, H_init, delta, n_max=8):
+    times = [t0]
+    states = [y0.copy()]
+    boundaries = []
+
+    def go(t, y, H):
+        ok, y_end = bs_try(f, t, y, H, delta, n_max)
+        if ok:
+            times.append(t + H)
+            states.append(y_end.copy())
+            boundaries.append(t + H)
+            return y_end
+        y_mid = go(t, y, H/2.0)
+        return go(t + H/2.0, y_mid, H/2.0)
+
+    span = t1 - t0
+    n_big = int(np.ceil(abs(span / H_init)))
+    H_use = span / n_big
+
+    t, y = t0, y0.copy()
+    for _ in range(n_big):
+        y = go(t, y, H_use)
+        t += H_use
+
+    return np.array(times), np.vstack(states), np.array(boundaries)
+
+delta = 1e-10
+t0, t1 = 0.0, 20.0
+H_init = 20.0
+y0 = np.array([0.0, 0.0], float)
+
+ts, ys, bounds = integrate_bs(f, t0, y0, t1, H_init, delta, n_max=8)
+
+fig, ax = plt.subplots(figsize=(7, 4.2), dpi=140)
+ax.plot(ts, ys[:, 0], label="x(t)")
+ax.plot(ts, ys[:, 1], label="y(t)")
+ax.scatter(bounds, np.interp(bounds, ts, ys[:, 0]), s=10, label="boundaries on x(t)")
+ax.set_xlabel("t")
+ax.set_ylabel("x(t), y(t)")
+ax.set_title("Brusselator — adaptive Bulirsch–Stoer")
+ax.legend()
+plt.tight_layout()
+plt.show()
